@@ -197,7 +197,7 @@ base model) and the merged folder as the policy. **Relative-action models must u
 inference** (`--inference.type=rtc`); with the default inference they stop with
 `GrootPolicy.select_action does not support relative-action policies`.
 
-Recommended command (relative-action model, light Kalman filter):
+Recommended command (relative-action model, Kalman q 0.03 / r 8 — the latest setting used on the arm):
 
 ```bash
 conda activate lerobot
@@ -209,8 +209,8 @@ ls ${POLICY}/model.safetensors           # must exist (an empty POLICY gives "un
 python ~/18842-gr00t/rollout_smooth.py \
   --zero_noise=false \
   --filter=kalman \
-  --kalman_q=0.05 \
-  --kalman_r=5 \
+  --kalman_q=0.03 \
+  --kalman_r=8 \
   --gripper_filter=none \
   --strategy.type=base \
   --policy.path=${POLICY} \
@@ -224,13 +224,16 @@ python ~/18842-gr00t/rollout_smooth.py \
   --robot.id=${ROBOT_ID} \
   --robot.use_degrees=false \
   --robot.calibration_dir=${HOME}/.cache/huggingface/lerobot/calibration/robots/so101_follower \
-  --robot.max_relative_target=10 \
   --robot.cameras="{ego: {type: opencv, index_or_path: ${CAMERA_GRIPPER}, width: 640, height: 480, fps: 30}, external_D455: {type: opencv, index_or_path: ${CAMERA_EXTERNAL}, width: 640, height: 480, fps: 30}}" \
   --task="Pick up the vial and place it in the rack" \
   --fps=30 \
-  --duration=45 \
+  --duration=60 \
   --display_data=true
 ```
+
+This command has **no per-step safety clamp** (`--robot.max_relative_target` not set), as in our
+latest runs. For a first run on a new station or with a new checkpoint, add
+`--robot.max_relative_target=10` (our earlier setting, used with `--kalman_q=0.05 --kalman_r=5`).
 
 Without the filter, run the same options with `lerobot-rollout` instead of
 `python ~/18842-gr00t/rollout_smooth.py` and drop the five `--zero_noise/--filter/--kalman_*/--gripper_filter` lines.
@@ -240,7 +243,7 @@ Without the filter, run the same options with `lerobot-rollout` instead of
 | `--inference.type=rtc` | Required for relative actions: each 40-action chunk is converted to absolute positions with the joint state at inference time. Runs inference in a background thread. |
 | `--inference.queue_threshold=10` | Start the next inference when 10 actions are left → a new chunk every ~30 actions (1 s). The default (30) re-plans every ~10 actions and made the arm **shake strongly**. Keep it above inference time × fps (0.16 s × 30 ≈ 5). |
 | `--policy.num_inference_timesteps=8` | Flow-matching denoising steps (default 4). 16 was not smoother and is slower (0.24 s). |
-| `--robot.max_relative_target=10` | Max joint change per step (safety clamp). Per joint: `"{shoulder_pan: 8.0, shoulder_lift: 8.0, elbow_flex: 8.0, wrist_flex: 8.0, wrist_roll: 8.0, gripper: 100.0}"` (all six names; gripper 100 keeps full grip force). |
+| `--robot.max_relative_target=10` (optional) | Max joint change per step (safety clamp). Before the Kalman filter we needed 5; with the filter 10 or no clamp worked. Per joint: `"{shoulder_pan: 8.0, shoulder_lift: 8.0, elbow_flex: 8.0, wrist_flex: 8.0, wrist_roll: 8.0, gripper: 100.0}"` (all six names; gripper 100 keeps full grip force). |
 | `--filter=kalman --kalman_q --kalman_r` | See [Smoothing](#25-smoothing-with-rollout_smoothpy). |
 
 An **absolute-action** model runs with plain `lerobot-rollout` and the class-guide options
@@ -270,8 +273,9 @@ Offline on recorded episodes (arm joints, mean |2nd difference| per step; demos 
 | Setting | Jitter | Largest steps (p99) | Lag |
 | --- | --- | --- | --- |
 | no filter | 2.77 | 12.6 | 0 |
-| Kalman q 0.05, r 4 (light) | 0.77 | 7.8 | ~10 ms |
-| Kalman q 0.01, r 9 (default) | 0.45 | 6.4 | ~40 ms |
+| Kalman q 0.05, r 5 (used on the arm, with clamp 10) | 0.73 | 7.7 | ~10 ms |
+| **Kalman q 0.03, r 8 (latest, recommended)** | **0.59** | **7.0** | ~33 ms |
+| Kalman q 0.01, r 9 (script default) | 0.45 | 6.4 | ~40 ms |
 | Kalman q 0.005, r 16 (strong) | 0.34 | 5.8 | ~75 ms |
 | EMA 0.3 | 0.61 | 6.0 | ~65 ms |
 
